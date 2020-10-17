@@ -1,0 +1,27 @@
+default_target: elixir
+targets:
+  elixir:
+    language: elixir
+    deps:
+      - name: httpoison
+        version: "1.7"
+      - name: jason
+        version: "1.2"
+      - name: nimble_csv
+        version: "1.1"
+      - name: floki
+        version: "0.29"
+  node:
+    language: node
+    deps:
+      - name: axios
+        version: "1.0"
+      - name: aws
+        version: "2.2"
+  rust_cli:
+    language: rust
+    deps:
+      - name: clap
+        version: "1.0"
+      - name: tokio
+        version: "0.9"

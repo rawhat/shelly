@@ -1,0 +1,18 @@
+defmodule Script.Mixfile do
+  use Mix.Project
+
+  def application do
+    [
+      applications: [],
+      extra_applications: [{{ for dep in deps }}:{dep.name}, {{ endfor }}]
+    ]
+  end
+
+  def project do
+    [app: :script, version: "1.0.0", deps: deps()]
+  end
+
+  defp deps do
+    [{{ for dep in deps }}\{:{dep.name}, "~> {dep.version}"}, {{ endfor }}]
+  end
+end

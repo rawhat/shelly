@@ -1,0 +1,28 @@
+NimbleCSV.define(CSVParser, separator: ",", escape: "\"")
+NimbleCSV.define(TSVParser, separator: "\t", escape: "\"")
+
+defmodule Parser do
+  def parse_csv(file) do
+    [headers | data] =
+      file
+      |> File.read!()
+      |> CSVParser.parse_string(skip_headers: false)
+
+    data
+    |> Enum.map(&Enum.zip(headers, &1))
+    |> Enum.map(&Map.new/1)
+  end
+
+  def to_csv(rows) when is_list(rows) do
+    header =
+      rows
+      |> Enum.at(0)
+      |> Map.keys()
+
+    [header | Enum.map(rows, &Map.values/1)]
+  end
+
+  def write_csv(rows, file) when is_list(rows) do
+    File.write!(file, CSVParser.dump_to_iodata(rows))
+  end
+end
