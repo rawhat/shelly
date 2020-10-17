@@ -27,9 +27,9 @@ struct Opts {
     config: Option<String>,
 }
 
-fn main() {
-    let default_config = fs::read_to_string("./src/templates/shelly.yml").unwrap();
+const DEFAULT_CONFIG: &'static str = include_str!("./templates/shelly.yml");
 
+fn main() {
     let opts: Opts = Opts::parse();
 
     let config_file = if let Some(cfg) = opts.config {
@@ -42,14 +42,13 @@ fn main() {
             fs::read_to_string(path.clone().join("shelly.yml"))
         } else {
             let _ = fs::create_dir_all(path.clone());
-            let _ = fs::write(path.join("shelly.yml"), default_config.clone());
-            Ok(default_config)
+            let _ = fs::write(path.join("shelly.yml"), DEFAULT_CONFIG);
+            Ok(String::from(DEFAULT_CONFIG))
         }
     }
     .unwrap();
 
     let config: Config = serde_yaml::from_str(config_file.as_str()).unwrap();
-    println!("{:#?}", config);
 
     let target_name = if let Some(t) = opts.target {
         t
