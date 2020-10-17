@@ -1,6 +1,7 @@
 use std::fs;
 use std::path;
 
+use anyhow::{Result, anyhow};
 use clap::Clap;
 
 use shelly::config::{Config, SupportedLanguage, Target};
@@ -29,45 +30,44 @@ struct Opts {
 
 const DEFAULT_CONFIG: &'static str = include_str!("./templates/shelly.yml");
 
-fn main() {
+fn main() -> Result<()> {
     let opts: Opts = Opts::parse();
 
     let config_file = if let Some(cfg) = opts.config {
-        fs::read_to_string(cfg)
+        fs::read_to_string(cfg)?
     } else {
-        let home_path = path::PathBuf::from(std::env::var("HOME").unwrap());
+        let home_path = path::PathBuf::from(std::env::var("HOME")?);
         let path = home_path.join(".config").join("shelly");
 
         if path.clone().join("shelly.yml").as_path().exists() {
-            fs::read_to_string(path.clone().join("shelly.yml"))
+            fs::read_to_string(path.clone().join("shelly.yml"))?
         } else {
-            let _ = fs::create_dir_all(path.clone());
-            let _ = fs::write(path.join("shelly.yml"), DEFAULT_CONFIG);
-            Ok(String::from(DEFAULT_CONFIG))
+            fs::create_dir_all(path.clone())?;
+            fs::write(path.join("shelly.yml"), DEFAULT_CONFIG)?;
+            String::from(DEFAULT_CONFIG)
         }
-    }
-    .unwrap();
+    };
 
-    let config: Config = serde_yaml::from_str(config_file.as_str()).unwrap();
+    let config: Config = serde_yaml::from_str(config_file.as_str())?;
 
     let target_name = if let Some(t) = opts.target {
         t
     } else {
         config.default_target
     };
-    let target = config.targets.get(&target_name).unwrap();
+    let target = config
+        .targets
+        .get(&target_name)
+        .expect("Target not specified in `shelly.yml` file");
     let Target { language, deps } = target;
 
     match language {
         SupportedLanguage::elixir => {
-            elixir::write_project(opts.path, deps.clone()).unwrap();
-            elixir::run(opts.shell).unwrap();
+            elixir::write_project(opts.path, deps.clone())?;
+            elixir::run(opts.shell)?;
+            Ok(())
         }
-        SupportedLanguage::node => {
-            panic!("Language not supported yet");
-        }
-        SupportedLanguage::rust => {
-            panic!("Language not supported yet");
-        }
+        SupportedLanguage::node => Err(anyhow!("Language 'node' not supported yet")),
+        SupportedLanguage::rust => Err(anyhow!("Language 'rust' not supported yet")),
     }
 }
