@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use tinytemplate::TinyTemplate;
 
 use crate::config::{Context, Dependencies, Dependency};
@@ -25,11 +25,11 @@ fn generate_templates(deps: Dependencies) -> Result<Vec<(&'static str, String)>>
 
     let build_template = template
         .render("package.json", &Context { deps: dep_string.clone() })
-        .unwrap();
+        .map_err(|err| anyhow!("Failed to render package.json: {}", err))?;
 
     let source_template = template
         .render("index.js", &Context { deps: dep_string })
-        .unwrap();
+        .map_err(|err| anyhow!("Failed to render index.js: {}", err))?;
 
     let mut templates = Vec::new();
 
@@ -49,11 +49,16 @@ pub fn write_project(path: String, deps: Dependencies) -> Result<()> {
     let (build_path, build_template) = templates.get(0).unwrap();
     let (source_path, source_template) = templates.get(1).unwrap();
 
-    fs::create_dir_all(folder_path.clone())?;
-    env::set_current_dir(folder_path.clone())?;
-    fs::write(build_path, build_template)?;
-    fs::create_dir(PathBuf::from("src"))?;
-    fs::write(source_path, source_template)?;
+    fs::create_dir_all(folder_path.clone())
+        .map_err(|err| anyhow!("Failed to create project folder: {}", err))?;
+    env::set_current_dir(folder_path.clone())
+        .map_err(|err| anyhow!("Failed to change to project directory: {}", err))?;
+    fs::write(build_path, build_template)
+        .map_err(|err| anyhow!("Failed to write build template: {}", err))?;
+    fs::create_dir(PathBuf::from("src"))
+        .map_err(|err| anyhow!("Failed to create `lib` directory: {}", err))?;
+    fs::write(source_path, source_template)
+        .map_err(|err| anyhow!("Failed to write source file: {}", err))?;
 
     Ok(())
 }
@@ -63,7 +68,8 @@ pub fn run(shell: bool) -> Result<()> {
     let mut npm = Command::new("npm")
         .arg("i")
         .stdout(stdout)
-        .spawn()?;
+        .spawn()
+        .map_err(|err| anyhow!("Failed to spawn npm command: {}", err))?;
 
     let _ = npm.wait();
 
@@ -74,7 +80,8 @@ pub fn run(shell: bool) -> Result<()> {
             .args(&["-i", "--experimental-repl-await", "-e", index_js.as_str()])
             .stdout(stdout)
             .stdin(os_pipe::dup_stdin().unwrap())
-            .spawn()?;
+            .spawn()
+            .map_err(|err| anyhow!("Failed to spawn node command: {}", err))?;
 
         let _ = node_cmd.wait();
     }

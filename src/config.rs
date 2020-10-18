@@ -4,6 +4,9 @@ use serde_derive::{Deserialize, Serialize};
 
 /// The list of supported languages
 #[derive(Debug, Deserialize, Serialize)]
+#[allow(non_camel_case_types)]
+// TODO:  There is probably a supported way to map this to a capital
+// letter, but I'm not bothering with that right now.
 pub enum SupportedLanguage {
     elixir,
     node,

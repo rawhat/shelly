@@ -36,19 +36,25 @@ fn main() -> Result<()> {
     let config_file = if let Some(cfg) = opts.config {
         fs::read_to_string(cfg)?
     } else {
-        let home_path = path::PathBuf::from(std::env::var("HOME")?);
+        let home_path = path::PathBuf::from(
+            std::env::var("HOME").map_err(|err| anyhow!("Failed to read $HOME: {}", err))?,
+        );
         let path = home_path.join(".config").join("shelly");
 
         if path.clone().join("shelly.yml").as_path().exists() {
-            fs::read_to_string(path.clone().join("shelly.yml"))?
+            fs::read_to_string(path.clone().join("shelly.yml"))
+                .map_err(|err| anyhow!("Failed to read existing `shelly.yml`: {}", err))?
         } else {
-            fs::create_dir_all(path.clone())?;
-            fs::write(path.join("shelly.yml"), DEFAULT_CONFIG)?;
+            fs::create_dir_all(path.clone())
+                .map_err(|err| anyhow!("Failed to create config directory: {}", err))?;
+            fs::write(path.join("shelly.yml"), DEFAULT_CONFIG)
+                .map_err(|err| anyhow!("Failed to write default config file: {}", err))?;
             String::from(DEFAULT_CONFIG)
         }
     };
 
-    let config: Config = serde_yaml::from_str(config_file.as_str())?;
+    let config: Config = serde_yaml::from_str(config_file.as_str())
+        .map_err(|err| anyhow!("Error parsing config file: {}", err))?;
 
     let target_name = if let Some(t) = opts.target {
         t
@@ -58,7 +64,7 @@ fn main() -> Result<()> {
     let target = config
         .targets
         .get(&target_name)
-        .expect("Target not specified in `shelly.yml` file");
+        .ok_or(anyhow!("Target not specified in `shelly.yml` file"))?;
     let Target { language, deps } = target;
 
     match language {

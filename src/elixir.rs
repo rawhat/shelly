@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use tinytemplate::TinyTemplate;
 
 use crate::config::{Context, Dependencies, Dependency};
@@ -17,19 +17,24 @@ fn generate_templates(deps: Dependencies) -> Result<Vec<(&'static str, String)>>
     template.add_template("parser.ex", SOURCE_TEMPLATE)?;
     template.set_default_formatter(&tinytemplate::format_unescaped);
 
-    let dep_string = deps.iter().map(|Dependency{name, version}| {
-        format!("{{:{}, \"~> {}\"}}", name, version)
-    })
-    .collect::<Vec<String>>()
-    .join(", ");
+    let dep_string = deps
+        .iter()
+        .map(|Dependency { name, version }| format!("{{:{}, \"~> {}\"}}", name, version))
+        .collect::<Vec<String>>()
+        .join(", ");
 
     let build_template = template
-        .render("mix.exs", &Context { deps: dep_string.clone() })
-        .unwrap();
+        .render(
+            "mix.exs",
+            &Context {
+                deps: dep_string.clone(),
+            },
+        )
+        .map_err(|err| anyhow!("Failed to render mix.exs template: {}", err))?;
 
     let source_template = template
         .render("parser.ex", &Context { deps: dep_string })
-        .unwrap();
+        .map_err(|err| anyhow!("Failed to render parser.ex template: {}", err))?;
 
     let mut templates = Vec::new();
 
@@ -49,11 +54,16 @@ pub fn write_project(path: String, deps: Dependencies) -> Result<()> {
     let (build_path, build_template) = templates.get(0).unwrap();
     let (source_path, source_template) = templates.get(1).unwrap();
 
-    fs::create_dir_all(folder_path.clone())?;
-    env::set_current_dir(folder_path.clone())?;
-    fs::write(build_path, build_template)?;
-    fs::create_dir(PathBuf::from("lib"))?;
-    fs::write(source_path, source_template)?;
+    fs::create_dir_all(folder_path.clone())
+        .map_err(|err| anyhow!("Failed to create project folder: {}", err))?;
+    env::set_current_dir(folder_path.clone())
+        .map_err(|err| anyhow!("Failed to change to project directory: {}", err))?;
+    fs::write(build_path, build_template)
+        .map_err(|err| anyhow!("Failed to write build template: {}", err))?;
+    fs::create_dir(PathBuf::from("lib"))
+        .map_err(|err| anyhow!("Failed to create `lib` directory: {}", err))?;
+    fs::write(source_path, source_template)
+        .map_err(|err| anyhow!("Failed to write source file: {}", err))?;
 
     Ok(())
 }
@@ -63,7 +73,8 @@ pub fn run(shell: bool) -> Result<()> {
     let mut mix = Command::new("mix")
         .args(&["do", "deps.get,", "deps.compile"])
         .stdout(stdout)
-        .spawn()?;
+        .spawn()
+        .map_err(|err| anyhow!("Failed to spawn mix command: {}", err))?;
 
     let _ = mix.wait();
 
@@ -73,7 +84,8 @@ pub fn run(shell: bool) -> Result<()> {
             .args(&["-S", "mix"])
             .stdout(stdout)
             .stdin(os_pipe::dup_stdin().unwrap())
-            .spawn()?;
+            .spawn()
+            .map_err(|err| anyhow!("Failed to spawn iex command: {}", err))?;
 
         let _ = iex_command.wait();
     }
