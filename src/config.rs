@@ -12,8 +12,8 @@ pub enum SupportedLanguage {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Dependency {
-    name: String,
-    version: String,
+    pub name: String,
+    pub version: String,
 }
 
 pub type Dependencies = Vec<Dependency>;
@@ -30,7 +30,8 @@ pub struct Config {
     pub targets: HashMap<String, Target>,
 }
 
+// TODO:  move this OUT of here... it should be on a per-language basis
 #[derive(Deserialize, Serialize)]
 pub struct Context {
-    pub deps: Dependencies,
+    pub deps: String,
 }

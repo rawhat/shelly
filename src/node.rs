@@ -8,39 +8,39 @@ use tinytemplate::TinyTemplate;
 
 use crate::config::{Context, Dependencies, Dependency};
 
-const BUILD_TEMPLATE: &'static str = include_str!("./templates/elixir/mix.exs.tmpl");
-const SOURCE_TEMPLATE: &'static str = include_str!("./templates/elixir/parser.ex.tmpl");
+const BUILD_TEMPLATE: &'static str = include_str!("./templates/node/package.json.tmpl");
+const SOURCE_TEMPLATE: &'static str = include_str!("./templates/node/index.js.tmpl");
 
 fn generate_templates(deps: Dependencies) -> Result<Vec<(&'static str, String)>> {
     let mut template = TinyTemplate::new();
-    template.add_template("mix.exs", BUILD_TEMPLATE)?;
-    template.add_template("parser.ex", SOURCE_TEMPLATE)?;
+    template.add_template("package.json", BUILD_TEMPLATE)?;
+    template.add_template("index.js", SOURCE_TEMPLATE)?;
     template.set_default_formatter(&tinytemplate::format_unescaped);
 
-    let dep_string = deps.iter().map(|Dependency{name, version}| {
-        format!("{{:{}, \"~> {}\"}}", name, version)
+    let dep_string: String = deps.iter().map(|Dependency{name, version}| {
+        format!("\"{}\": \"^{}\"", name, version)
     })
     .collect::<Vec<String>>()
-    .join(", ");
+    .join(",\n");
 
     let build_template = template
-        .render("mix.exs", &Context { deps: dep_string.clone() })
+        .render("package.json", &Context { deps: dep_string.clone() })
         .unwrap();
 
     let source_template = template
-        .render("parser.ex", &Context { deps: dep_string })
+        .render("index.js", &Context { deps: dep_string })
         .unwrap();
 
     let mut templates = Vec::new();
 
-    templates.push(("mix.exs", build_template));
-    templates.push(("lib/parser.ex", source_template));
+    templates.push(("package.json", build_template));
+    templates.push(("src/index.js", source_template));
 
     Ok(templates)
 }
 
 pub fn write_project(path: String, deps: Dependencies) -> Result<()> {
-    println!("Generating mix project...");
+    println!("Generating node project...");
 
     let folder_path = PathBuf::from(path);
 
@@ -52,7 +52,7 @@ pub fn write_project(path: String, deps: Dependencies) -> Result<()> {
     fs::create_dir_all(folder_path.clone())?;
     env::set_current_dir(folder_path.clone())?;
     fs::write(build_path, build_template)?;
-    fs::create_dir(PathBuf::from("lib"))?;
+    fs::create_dir(PathBuf::from("src"))?;
     fs::write(source_path, source_template)?;
 
     Ok(())
@@ -60,22 +60,23 @@ pub fn write_project(path: String, deps: Dependencies) -> Result<()> {
 
 pub fn run(shell: bool) -> Result<()> {
     let stdout = os_pipe::dup_stdout()?;
-    let mut mix = Command::new("mix")
-        .args(&["do", "deps.get,", "deps.compile"])
+    let mut npm = Command::new("npm")
+        .arg("i")
         .stdout(stdout)
         .spawn()?;
 
-    let _ = mix.wait();
+    let _ = npm.wait();
 
     if shell {
         let stdout = os_pipe::dup_stdout()?;
-        let mut iex_command = Command::new("iex")
-            .args(&["-S", "mix"])
+        let index_js = fs::read_to_string("./src/index.js")?;
+        let mut node_cmd = Command::new("node")
+            .args(&["-i", "--experimental-repl-await", "-e", index_js.as_str()])
             .stdout(stdout)
             .stdin(os_pipe::dup_stdin().unwrap())
             .spawn()?;
 
-        let _ = iex_command.wait();
+        let _ = node_cmd.wait();
     }
 
     Ok(())

@@ -1,0 +1,24 @@
+const axios = require("axios");
+const cheerio = require("cheerio");
+const papaparse = require("papaparse");
+
+const \{ promises: fs } = require("fs");
+
+async function parseCsv(path) \{
+  const file = await fs.readFile(path, "utf-8");
+  return papaparse.parse(file);
+}
+
+async function toCsv(arr) \{
+  return papaparse.unparse(arr);
+}
+
+async function writeCsv(path, csv) \{
+  await fs.writeFile(path, csv);
+}
+
+module.exports = \{
+  parseCsv,
+  toCsv,
+  writeCsv,
+};

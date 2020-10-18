@@ -13,6 +13,6 @@ defmodule Script.Mixfile do
   end
 
   defp deps do
-    [{{ for dep in deps }}\{:{dep.name}, "~> {dep.version}"}, {{ endfor }}]
+    [{ deps }]
   end
 end

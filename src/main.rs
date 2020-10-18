@@ -1,11 +1,11 @@
 use std::fs;
 use std::path;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use clap::Clap;
 
 use shelly::config::{Config, SupportedLanguage, Target};
-use shelly::elixir;
+use shelly::{elixir, node};
 
 /// Generate dynamic, scripting language projects with dependencies for
 /// quick CLI feedback loops.
@@ -67,7 +67,11 @@ fn main() -> Result<()> {
             elixir::run(opts.shell)?;
             Ok(())
         }
-        SupportedLanguage::node => Err(anyhow!("Language 'node' not supported yet")),
+        SupportedLanguage::node => {
+            node::write_project(opts.path, deps.clone())?;
+            node::run(opts.shell)?;
+            Ok(())
+        }
         SupportedLanguage::rust => Err(anyhow!("Language 'rust' not supported yet")),
     }
 }
