@@ -1,7 +1,9 @@
-- generate build "cache" in parallel on first run
-  (have to handle some being long af vs others)
+- support default template, local fs directory, or github repo
 
-- --template ts|js|ex|rb|py|etc
+- for the default template, maybe write to a temp directory and then copy it over?
+  - maybe also write the hashed config for the language to the build dir
+    for easier diffing later
+  - might want to add a flag for like... `--no-cache` oslt to be a good citizen
 
-- maybe also write the hashed config for the language to the build dir
-  for easier diffing later
+- instead of checking in a yml file as a template, why not just have a default
+  Config struct in rust that you serialize/write the the fs
