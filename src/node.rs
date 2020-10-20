@@ -1,3 +1,5 @@
+use std::fs;
+
 use serde_derive::{Deserialize, Serialize};
 
 use crate::target::{Dependencies, Dependency, LanguageTarget, Shell};
@@ -21,12 +23,20 @@ pub fn new(deps: Dependencies) -> LanguageTarget<Context> {
             dep_string: generate_dep_string(deps.clone()),
             packages: generate_packages(deps),
         },
-        ("npm", vec!["i"]),
+        ("npm", vec!["i".to_string()]),
         Some(Shell::new(
-            (
-                "node",
-                vec!["-i", "--experimental-repl-await", "-e", SOURCE_TEMPLATE],
-            ),
+            Box::new(|| {
+                let source = fs::read_to_string("./src/index.js")?;
+                Ok((
+                    "node",
+                    vec![
+                        "-i".to_string(),
+                        "--experimental-repl-await".to_string(),
+                        "-e".to_string(),
+                        source,
+                    ],
+                ))
+            }),
             SHELL_TEMPLATE,
         )),
         "src",

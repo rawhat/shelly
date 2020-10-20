@@ -21,8 +21,18 @@ pub fn new(deps: Dependencies) -> LanguageTarget<Context> {
             dep_string: generate_dep_string(deps.clone()),
             deps,
         },
-        ("mix", vec!["do", "deps.get,", "deps.compile"]),
-        Some(Shell::new(("iex", vec!["-S", "mix"]), SHELL_TEMPLATE)),
+        (
+            "mix",
+            vec![
+                "do".to_string(),
+                "deps.get,".to_string(),
+                "deps.compile".to_string(),
+            ],
+        ),
+        Some(Shell::new(
+            Box::new(|| Ok(("iex", vec!["-S".to_string(), "mix".to_string()]))),
+            SHELL_TEMPLATE,
+        )),
         "lib",
         vec![("parser.ex", SOURCE_TEMPLATE)],
     )

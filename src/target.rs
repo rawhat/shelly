@@ -48,29 +48,22 @@ pub type Dependencies = Vec<Dependency>;
 
 pub type LanguageTemplate = (&'static str, &'static str);
 
-pub type ProgramCommand = (&'static str, Vec<&'static str>);
+pub type ProgramCommand = (&'static str, Vec<String>);
+
+type GetShellArgs = Box<dyn Fn() -> anyhow::Result<ProgramCommand>>;
 
 pub struct Shell {
-    command: ProgramCommand,
+    get_command: GetShellArgs,
     template: &'static str,
 }
 
 impl Shell {
-    pub fn new(command: ProgramCommand, template: &'static str) -> Shell {
-        Shell { command, template }
+    pub fn new(get_command: GetShellArgs, template: &'static str) -> Shell {
+        Shell {
+            get_command,
+            template,
+        }
     }
-}
-
-pub struct LanguageTarget<T>
-where
-    T: SerdeSerialize,
-{
-    build_template: LanguageTemplate,
-    context: T,
-    run_command: ProgramCommand,
-    shell: Option<Shell>,
-    source_directory: &'static str,
-    source_templates: Vec<LanguageTemplate>,
 }
 
 pub struct Template {
@@ -153,6 +146,18 @@ impl GenerateHash for Target {
         hasher.update(format!("{}{}", self.language, deps_string));
         String::from_utf8(hasher.finalize().into_iter().collect::<Vec<u8>>()).unwrap()
     }
+}
+
+pub struct LanguageTarget<T>
+where
+    T: SerdeSerialize,
+{
+    build_template: LanguageTemplate,
+    context: T,
+    run_command: ProgramCommand,
+    shell: Option<Shell>,
+    source_directory: &'static str,
+    source_templates: Vec<LanguageTemplate>,
 }
 
 impl<T> LanguageTarget<T>
@@ -270,12 +275,13 @@ where
 
         if let Some(shell) = &self.shell {
             let stdout = os_pipe::dup_stdout()?;
-            let mut shell_cmd = Command::new(shell.command.0)
-                .args(shell.command.1.clone())
+            let shell_args = (shell.get_command)()?;
+            let mut shell_cmd = Command::new(shell_args.0)
+                .args(shell_args.1.clone())
                 .stdout(stdout)
                 .stdin(os_pipe::dup_stdin().unwrap())
                 .spawn()
-                .map_err(|err| anyhow!("Failed to spawn {} command: {}", shell.command.0, err))?;
+                .map_err(|err| anyhow!("Failed to spawn {} command: {}", shell_args.0, err))?;
 
             let _ = shell_cmd.wait();
         }
