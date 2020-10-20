@@ -4,7 +4,7 @@ defmodule Script.Mixfile do
   def application do
     [
       applications: [],
-      extra_applications: [{{ for dep in deps }}:{dep.name}, {{ endfor }}]
+      extra_applications: [{{ for app in applications }}:{app}, {{ endfor }}]
     ]
   end
 

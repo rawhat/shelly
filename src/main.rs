@@ -4,36 +4,15 @@ use std::path;
 use anyhow::{anyhow, Result};
 use clap::Clap;
 
-use shelly::config::{Config, SupportedLanguage, Target};
-use shelly::{elixir, node};
-
-/// Generate dynamic, scripting language projects with dependencies for
-/// quick CLI feedback loops.
-#[derive(Clap)]
-#[clap(version = "1.0", author = "Alex M. <alex41290@gmail.com>")]
-struct Opts {
-    /// Path to create project
-    #[clap(default_value = ".")]
-    path: String,
-
-    /// Drop into REPL after building
-    #[clap(short, long)]
-    shell: bool,
-
-    /// A target is a language and dependencies pairing
-    #[clap(short, long)]
-    target: Option<String>,
-
-    #[clap(short, long)]
-    config: Option<String>,
-}
+use shelly::config::Config;
+use shelly::opts::Opts;
 
 const DEFAULT_CONFIG: &'static str = include_str!("./templates/shelly.yml");
 
 fn main() -> Result<()> {
     let opts: Opts = Opts::parse();
 
-    let config_file = if let Some(cfg) = opts.config {
+    let config_file = if let Some(cfg) = opts.get_config() {
         fs::read_to_string(cfg)?
     } else {
         let home_path = path::PathBuf::from(
@@ -56,28 +35,14 @@ fn main() -> Result<()> {
     let config: Config = serde_yaml::from_str(config_file.as_str())
         .map_err(|err| anyhow!("Error parsing config file: {}", err))?;
 
-    let target_name = if let Some(t) = opts.target {
+    let target_name = if let Some(t) = opts.get_target() {
         t
     } else {
         config.default_target
     };
-    let target = config
+    config
         .targets
         .get(&target_name)
-        .ok_or(anyhow!("Target not specified in `shelly.yml` file"))?;
-    let Target { language, deps } = target;
-
-    match language {
-        SupportedLanguage::elixir => {
-            elixir::write_project(opts.path, deps.clone())?;
-            elixir::run(opts.shell)?;
-            Ok(())
-        }
-        SupportedLanguage::node => {
-            node::write_project(opts.path, deps.clone())?;
-            node::run(opts.shell)?;
-            Ok(())
-        }
-        SupportedLanguage::rust => Err(anyhow!("Language 'rust' not supported yet")),
-    }
+        .ok_or(anyhow!("Target not specified in `shelly.yml` file"))?
+        .execute(opts)
 }

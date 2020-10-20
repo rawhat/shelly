@@ -1,3 +1,4 @@
+build_dir: /tmp/shelly
 default_target: elixir
 targets:
   elixir:
