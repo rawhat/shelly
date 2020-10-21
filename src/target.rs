@@ -44,6 +44,15 @@ pub struct Dependency {
     pub version: String,
 }
 
+impl Dependency {
+    pub fn new(name: &'static str, version: &'static str) -> Dependency {
+        Dependency{
+            name: String::from(name),
+            version: String::from(version),
+        }
+    }
+}
+
 pub type Dependencies = Vec<Dependency>;
 
 pub type LanguageTemplate = (&'static str, &'static str);
@@ -108,6 +117,10 @@ pub struct Target {
 }
 
 impl Target {
+    pub fn new(language: SupportedLanguage, deps: Dependencies) -> Target {
+        Target{deps, language}
+    }
+
     pub fn execute(&self, opts: Opts) -> anyhow::Result<()> {
         match self.language {
             SupportedLanguage::elixir => {

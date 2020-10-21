@@ -7,8 +7,6 @@ use clap::Clap;
 use shelly::config::Config;
 use shelly::opts::Opts;
 
-const DEFAULT_CONFIG: &'static str = include_str!("./templates/shelly.yml");
-
 fn main() -> Result<()> {
     let opts: Opts = Opts::parse();
 
@@ -24,11 +22,13 @@ fn main() -> Result<()> {
             fs::read_to_string(path.clone().join("shelly.yml"))
                 .map_err(|err| anyhow!("Failed to read existing `shelly.yml`: {}", err))?
         } else {
+            let default = shelly::config::default();
+            let default_config = serde_yaml::to_string(&default)?;
             fs::create_dir_all(path.clone())
                 .map_err(|err| anyhow!("Failed to create config directory: {}", err))?;
-            fs::write(path.join("shelly.yml"), DEFAULT_CONFIG)
+            fs::write(path.join("shelly.yml"), default_config.clone())
                 .map_err(|err| anyhow!("Failed to write default config file: {}", err))?;
-            String::from(DEFAULT_CONFIG)
+            String::from(default_config)
         }
     };
 
