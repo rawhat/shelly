@@ -19,6 +19,9 @@ pub struct Opts {
 
     #[clap(short, long)]
     config: Option<String>,
+
+    #[clap(long)]
+    no_cache: bool,
 }
 
 impl Opts {
@@ -31,16 +34,18 @@ impl Opts {
     }
 
     pub fn get_target(&self) -> Option<String> {
-        match &self.target {
-            Some(t) => Some(t.clone()),
-            None => None,
-        }
+        self.target.clone()
+        /* match &self.target {
+        Some(t) => Some(t.clone()),
+        None => None, */
+        // }
     }
 
     pub fn get_config(&self) -> Option<String> {
-        match &self.config {
-            Some(cfg) => Some(cfg.clone()),
-            None => None,
-        }
+        self.config.clone()
+    }
+
+    pub fn get_no_cache(&self) -> bool {
+        self.no_cache
     }
 }

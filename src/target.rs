@@ -1,7 +1,7 @@
 use std::env;
 use std::fmt;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[cfg(target_os = "linux")]
@@ -10,14 +10,15 @@ use std::os::unix::prelude::*;
 use anyhow::anyhow;
 use serde::ser::Serialize as SerdeSerialize;
 use serde_derive::{Deserialize, Serialize};
-use sha1::{Digest, Sha1};
+use sha2::{Digest, Sha256};
 use tinytemplate::TinyTemplate;
+use walkdir::{DirEntry, WalkDir};
 
 use crate::opts::Opts;
 use crate::{elixir, node};
 
 /// The list of supported languages
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[allow(non_camel_case_types)]
 // TODO:  There is probably a supported way to map this to a capital
 // letter, but I'm not bothering with that right now.
@@ -46,7 +47,7 @@ pub struct Dependency {
 
 impl Dependency {
     pub fn new(name: &'static str, version: &'static str) -> Dependency {
-        Dependency{
+        Dependency {
             name: String::from(name),
             version: String::from(version),
         }
@@ -57,7 +58,41 @@ pub type Dependencies = Vec<Dependency>;
 
 pub type LanguageTemplate = (&'static str, &'static str);
 
-pub type ProgramCommand = (&'static str, Vec<String>);
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProgramCommand {
+    command: String,
+    args: Vec<String>,
+}
+
+impl ProgramCommand {
+    pub fn new(command: String, args: Vec<String>) -> ProgramCommand {
+        ProgramCommand { command, args }
+    }
+
+    pub fn run(&self) -> anyhow::Result<()> {
+        let mut cmd = self.get_command()?;
+        let mut child = cmd.spawn()?;
+        let _ = child.wait()?;
+        Ok(())
+    }
+
+    pub fn run_with_stdin(&self) -> anyhow::Result<()> {
+        let mut cmd = self.get_command()?;
+        cmd.stdin(os_pipe::dup_stdin()?);
+        let mut child = cmd.spawn()?;
+        let _ = child.wait()?;
+        Ok(())
+    }
+
+    fn get_command(&self) -> anyhow::Result<Command> {
+        let stdout = os_pipe::dup_stdout()?;
+        let mut cmd = Command::new(self.command.clone());
+        cmd.args(self.args.clone());
+        cmd.stdout(stdout);
+
+        Ok(cmd)
+    }
+}
 
 type GetShellArgs = Box<dyn Fn() -> anyhow::Result<ProgramCommand>>;
 
@@ -111,54 +146,109 @@ impl<'a> Templates {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct Target {
-    pub language: SupportedLanguage,
-    pub deps: Dependencies,
+pub struct DefaultTarget {
+    pub language: Option<SupportedLanguage>,
+    pub name: String,
+    pub deps: Option<Dependencies>,
 }
 
-impl Target {
-    pub fn new(language: SupportedLanguage, deps: Dependencies) -> Target {
-        Target{deps, language}
+impl DefaultTarget {
+    pub fn new(name: String, language: SupportedLanguage, deps: Dependencies) -> DefaultTarget {
+        DefaultTarget {
+            deps: Some(deps),
+            language: Some(language),
+            name,
+        }
     }
 
-    pub fn execute(&self, opts: Opts) -> anyhow::Result<()> {
+    pub fn execute(&self, opts: Opts, build_dir: String) -> anyhow::Result<()> {
         match self.language {
-            SupportedLanguage::elixir => {
-                let target = elixir::new(self.deps.clone());
-                target.write_project(opts.get_path())?;
-                target.run()?;
-                Ok(())
+            Some(SupportedLanguage::elixir) => {
+                let target = elixir::new(self.deps.clone().unwrap(), opts.get_shell());
+                let cached = target.is_cached(self.name.clone(), build_dir);
+                match (opts.get_no_cache(), cached) {
+                    (true, _) | (false, false) => {
+                        target.write_project(opts.get_path())?;
+                        // target.write_hash(self.name.clone(), build_dir)?;
+                        target.run()?;
+                        Ok(())
+                    }
+                    _ => {
+                        // copy from hashed entry!
+                        Ok(())
+                    }
+                }
             }
-            SupportedLanguage::node => {
-                let target = node::new(self.deps.clone());
-                target.write_project(opts.get_path())?;
-                target.run()?;
-                Ok(())
+            Some(SupportedLanguage::node) => {
+                let target = node::new(self.deps.clone().unwrap(), opts.get_shell());
+                let cached = target.is_cached(self.name.clone(), build_dir);
+                match (opts.get_no_cache(), cached) {
+                    (true, _) | (false, false) => {
+                        target.write_project(opts.get_path())?;
+                        // target.write_hash(self.name.clone(), build_dir)?;
+                        target.run()?;
+                        Ok(())
+                    }
+                    _ => {
+                        // copy from hashed entry!
+                        Ok(())
+                    }
+                }
             }
-            SupportedLanguage::rust => {
-                Err(anyhow!("{} is not a supported language", self.language))
-            }
+            _ => Err(anyhow!(
+                "{} is not a supported language",
+                self.language.clone().unwrap()
+            )),
         }
     }
 }
 
-trait GenerateHash {
-    fn generate_hash(&self) -> String;
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RemoteTarget {
+    build_args: Vec<String>,
+    build_command: String,
+    path: String,
+    shell: Option<ProgramCommand>,
 }
 
-impl GenerateHash for Target {
-    fn generate_hash(&self) -> String {
-        let deps_string = self
-            .deps
-            .iter()
-            .map(|dep| format!("{},{}", dep.name, dep.version))
-            .collect::<Vec<String>>()
-            .join(":");
-
-        let mut hasher = Sha1::new();
-        hasher.update(format!("{}{}", self.language, deps_string));
-        String::from_utf8(hasher.finalize().into_iter().collect::<Vec<u8>>()).unwrap()
+impl RemoteTarget {
+    pub fn new(
+        path: String,
+        build_command: String,
+        build_args: Vec<String>,
+        shell: Option<ProgramCommand>,
+    ) -> RemoteTarget {
+        RemoteTarget {
+            build_args,
+            build_command,
+            path,
+            shell,
+        }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Target {
+    Internal(DefaultTarget),
+    Directory(RemoteTarget),
+    Repo(RemoteTarget),
+}
+
+pub fn generate_hash(deps: Dependencies, language: SupportedLanguage) -> String {
+    let dep_string = deps
+        .iter()
+        .map(|dep| format!("{},{}", dep.name, dep.version))
+        .collect::<Vec<String>>()
+        .join(":");
+
+    let mut hasher = Sha256::new();
+    let bytes = [
+        language.to_string().as_str().as_bytes(),
+        dep_string.as_bytes(),
+    ]
+    .concat();
+    hasher.update(&bytes);
+    format!("{:X}", hasher.finalize())
 }
 
 pub struct LanguageTarget<T>
@@ -167,6 +257,7 @@ where
 {
     build_template: LanguageTemplate,
     context: T,
+    hash: String,
     run_command: ProgramCommand,
     shell: Option<Shell>,
     source_directory: &'static str,
@@ -180,6 +271,7 @@ where
     pub fn new(
         build_template: LanguageTemplate,
         context: T,
+        hash: String,
         run_command: ProgramCommand,
         shell: Option<Shell>,
         source_directory: &'static str,
@@ -188,12 +280,35 @@ where
         LanguageTarget {
             build_template,
             context,
+            hash,
             run_command,
             shell,
             source_directory,
             source_templates,
         }
     }
+
+    fn hash_path(&self, name: String, build_dir: String) -> String {
+        let file_name = format!("{}.sha1", name);
+        String::from(
+            Path::new(build_dir.as_str())
+                .join(file_name.as_str())
+                .to_str()
+                .expect("Bad sha1 file name generated"),
+        )
+    }
+
+    fn is_cached(&self, name: String, build_dir: String) -> bool {
+        let hash_path = self.hash_path(name, build_dir);
+        fs::read_to_string(hash_path).map_or(false, |hash| hash == self.hash);
+        false
+    }
+
+    /* fn write_hash(&self, name: String, build_dir: String) -> anyhow::Result<()> {
+        let hash_path = self.hash_path(name, build_dir);
+        fs::write(hash_path, self.hash.clone())
+            .map_err(|err| anyhow!("Failed to write hash: {}", err))
+    } */
 
     fn generate_templates(&self) -> anyhow::Result<Templates> {
         let mut template = TinyTemplate::new();
@@ -231,7 +346,7 @@ where
             templates.add_source_template(source_path, source_template);
         }
 
-        if let Some(_) = self.shell {
+        if self.shell.is_some() {
             let shell_template = template
                 .render("shell.sh", &self.context)
                 .map_err(|err| anyhow!("Failed to render shell template: {}", err))?;
@@ -250,7 +365,7 @@ where
 
         fs::create_dir_all(folder_path.clone())
             .map_err(|err| anyhow!("Failed to create project folder: {}", err))?;
-        env::set_current_dir(folder_path.clone())
+        env::set_current_dir(folder_path)
             .map_err(|err| anyhow!("Failed to change to project directory: {}", err))?;
         fs::write(
             templates.build_template.path,
@@ -277,28 +392,128 @@ where
     }
 
     pub fn run(&self) -> anyhow::Result<()> {
-        let stdout = os_pipe::dup_stdout()?;
-        let mut cmd = Command::new(self.run_command.0)
-            .args(self.run_command.1.clone())
-            .stdout(stdout)
-            .spawn()
-            .map_err(|err| anyhow!("Failed to spawn {} command: {}", self.run_command.0, err))?;
-
-        let _ = cmd.wait();
+        self.run_command.run().map_err(|err| {
+            anyhow!(
+                "Failed to spawn {} command: {}",
+                self.run_command.command,
+                err
+            )
+        })?;
 
         if let Some(shell) = &self.shell {
-            let stdout = os_pipe::dup_stdout()?;
-            let shell_args = (shell.get_command)()?;
-            let mut shell_cmd = Command::new(shell_args.0)
-                .args(shell_args.1.clone())
-                .stdout(stdout)
-                .stdin(os_pipe::dup_stdin().unwrap())
-                .spawn()
-                .map_err(|err| anyhow!("Failed to spawn {} command: {}", shell_args.0, err))?;
-
-            let _ = shell_cmd.wait();
+            (shell.get_command)()?.run()?;
         }
 
         Ok(())
     }
+}
+
+pub fn pull_git_repo(project_path: String, repo: &RemoteTarget, shell: bool) -> anyhow::Result<()> {
+    if shell && repo.shell.is_none() {
+        return Err(anyhow!(
+            "No shell command specified in config for this git repo"
+        ));
+    }
+
+    ProgramCommand::new(
+        String::from("git"),
+        vec![
+            String::from("clone"),
+            repo.path.clone(),
+            project_path.clone(),
+        ],
+    )
+    .run()
+    .map_err(|err| anyhow!("Failed to clone git repo {}: {}", repo.path.clone(), err))?;
+
+    env::set_current_dir(project_path)
+        .map_err(|err| anyhow!("Failed to change to project directory: {}", err))?;
+
+    ProgramCommand::new(repo.build_command.clone(), repo.build_args.clone())
+        .run()
+        .map_err(|err| {
+            anyhow!(
+                "Failed to run build command for git repo {}: {}",
+                repo.path,
+                err
+            )
+        })?;
+
+    if shell {
+        repo.shell
+            .as_ref()
+            .unwrap()
+            .run_with_stdin()
+            .map_err(|err| anyhow!("Failed to run build shell command: {}", err))?;
+    }
+
+    Ok(())
+}
+
+pub fn copy_build_directory(
+    project_path: String,
+    build: &RemoteTarget,
+    shell: bool,
+) -> anyhow::Result<()> {
+    if shell && build.shell.is_none() {
+        return Err(anyhow!(
+            "No shell command specified in config for this build folder"
+        ));
+    }
+
+    fs::create_dir_all(project_path.clone())
+        .map_err(|err| anyhow!("Failed to create project folder: {}", err))?;
+
+    let ignored_dirs = vec!["node_modules"];
+
+    let files: Vec<DirEntry> = WalkDir::new(build.path.clone())
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let file = entry
+                .path()
+                .strip_prefix(build.path.clone())
+                .unwrap()
+                .to_str()
+                .unwrap();
+            !ignored_dirs.iter().any(|dir| file.starts_with(dir))
+        })
+        .collect();
+
+    for file in files {
+        println!("file path: {:?}", file.path());
+        let folder_path = file.path().strip_prefix(build.path.clone())?;
+        let path_to_file = PathBuf::from(project_path.clone()).join(folder_path);
+        if file.metadata()?.is_dir() {
+            println!("Creating folder {:?}", file.path());
+            fs::create_dir_all(file.path())?;
+        } else {
+            println!("Writing {:?} to {:?}", file.path(), path_to_file);
+            fs::copy(file.path(), path_to_file)?;
+        }
+    }
+
+    env::set_current_dir(project_path)
+        .map_err(|err| anyhow!("Failed to change to project directory: {}", err))?;
+
+    ProgramCommand::new(build.build_command.clone(), build.build_args.clone())
+        .run()
+        .map_err(|err| {
+            anyhow!(
+                "Failed to run build command for build directory {}: {}",
+                build.path,
+                err
+            )
+        })?;
+
+    if shell {
+        build
+            .shell
+            .as_ref()
+            .unwrap()
+            .run_with_stdin()
+            .map_err(|err| anyhow!("Failed to run git shell command: {}", err))?;
+    }
+
+    Ok(())
 }

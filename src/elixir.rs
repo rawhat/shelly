@@ -1,10 +1,13 @@
 use serde_derive::{Deserialize, Serialize};
 
-use crate::target::{Dependencies, Dependency, LanguageTarget, Shell};
+use crate::target::{
+    generate_hash, Dependencies, Dependency, LanguageTarget, ProgramCommand, Shell,
+    SupportedLanguage,
+};
 
-const BUILD_TEMPLATE: &'static str = include_str!("./templates/elixir/mix.exs.tmpl");
-const SOURCE_TEMPLATE: &'static str = include_str!("./templates/elixir/parser.ex.tmpl");
-const SHELL_TEMPLATE: &'static str = include_str!("./templates/elixir/shell.sh.tmpl");
+const BUILD_TEMPLATE: &str = include_str!("./templates/elixir/mix.exs.tmpl");
+const SOURCE_TEMPLATE: &str = include_str!("./templates/elixir/parser.ex.tmpl");
+const SHELL_TEMPLATE: &str = include_str!("./templates/elixir/shell.sh.tmpl");
 
 #[derive(Deserialize, Serialize)]
 pub struct Context {
@@ -13,26 +16,36 @@ pub struct Context {
     pub dep_string: String,
 }
 
-pub fn new(deps: Dependencies) -> LanguageTarget<Context> {
+pub fn new(deps: Dependencies, shell: bool) -> LanguageTarget<Context> {
     LanguageTarget::new(
         ("mix.exs", BUILD_TEMPLATE),
         Context {
             applications: generate_applications(deps.clone()),
             dep_string: generate_dep_string(deps.clone()),
-            deps,
+            deps: deps.clone(),
         },
-        (
-            "mix",
+        generate_hash(deps, SupportedLanguage::elixir),
+        ProgramCommand::new(
+            String::from("mix"),
             vec![
                 "do".to_string(),
                 "deps.get,".to_string(),
                 "deps.compile".to_string(),
             ],
         ),
-        Some(Shell::new(
-            Box::new(|| Ok(("iex", vec!["-S".to_string(), "mix".to_string()]))),
-            SHELL_TEMPLATE,
-        )),
+        if shell {
+            Some(Shell::new(
+                Box::new(|| {
+                    Ok(ProgramCommand::new(
+                        String::from("iex"),
+                        vec!["-S".to_string(), "mix".to_string()],
+                    ))
+                }),
+                SHELL_TEMPLATE,
+            ))
+        } else {
+            None
+        },
         "lib",
         vec![("parser.ex", SOURCE_TEMPLATE)],
     )

@@ -2,11 +2,14 @@ use std::collections::HashMap;
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::target::{Dependency, SupportedLanguage, Target};
+use crate::target::{
+    DefaultTarget, Dependency, ProgramCommand, RemoteTarget, SupportedLanguage, Target,
+};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     pub build_dir: String,
+    pub cache: Option<bool>,
     pub default_target: String,
     pub targets: HashMap<String, Target>,
 }
@@ -14,29 +17,62 @@ pub struct Config {
 pub fn default() -> Config {
     let mut targets = HashMap::new();
 
-    let mut elixir_deps = Vec::new();
-    elixir_deps.push(Dependency::new("httpoison", "1.7"));
-    elixir_deps.push(Dependency::new("jason", "1.2"));
-    elixir_deps.push(Dependency::new("nimble_csv", "1.1"));
-    elixir_deps.push(Dependency::new("floki", "0.29"));
-    let elixir_target = Target::new(SupportedLanguage::elixir, elixir_deps);
-    targets.insert(SupportedLanguage::elixir.to_string(), elixir_target);
+    let elixir_deps = vec![
+        Dependency::new("httpoison", "1.7"),
+        Dependency::new("jason", "1.2"),
+        Dependency::new("nimble_csv", "1.1"),
+        Dependency::new("floki", "0.29"),
+    ];
+    let elixir_target =
+        DefaultTarget::new("elixir".to_string(), SupportedLanguage::elixir, elixir_deps);
+    targets.insert(
+        SupportedLanguage::elixir.to_string(),
+        Target::Internal(elixir_target),
+    );
 
-    let mut node_deps = Vec::new();
-    node_deps.push(Dependency::new("axios", "0.20.0"));
-    node_deps.push(Dependency::new("cheerio", "1.0.0-rc.3"));
-    node_deps.push(Dependency::new("papaparse", "5.3.0"));
-    let node_target = Target::new(SupportedLanguage::node, node_deps);
-    targets.insert(SupportedLanguage::node.to_string(), node_target);
+    let node_deps = vec![
+        Dependency::new("axios", "0.20.0"),
+        Dependency::new("cheerio", "1.0.0-rc.3"),
+        Dependency::new("papaparse", "5.3.0"),
+    ];
+    let node_target = DefaultTarget::new("node".to_string(), SupportedLanguage::node, node_deps);
+    targets.insert(
+        SupportedLanguage::node.to_string(),
+        Target::Internal(node_target),
+    );
 
-    let mut rust_deps = Vec::new();
-    rust_deps.push(Dependency::new("clap", "1.0"));
-    rust_deps.push(Dependency::new("tokio", "0.9"));
-    let rust_target = Target::new(SupportedLanguage::rust, rust_deps);
-    targets.insert(SupportedLanguage::rust.to_string(), rust_target);
+    let rust_deps = vec![
+        Dependency::new("clap", "1.0"),
+        Dependency::new("tokio", "0.9"),
+    ];
+    let rust_target = DefaultTarget::new("rust".to_string(), SupportedLanguage::rust, rust_deps);
+    targets.insert(
+        SupportedLanguage::rust.to_string(),
+        Target::Internal(rust_target),
+    );
 
-    Config{
+    let git_target = Target::Repo(RemoteTarget::new(
+        String::from("https://github.com/rawhat/spades.git"),
+        String::from("mix"),
+        vec![
+            String::from("do"),
+            String::from("deps.get,"),
+            String::from("deps.compile"),
+        ],
+        Some(ProgramCommand::new(
+            String::from("iex"),
+            vec![
+                String::from("-S"),
+                String::from("mix"),
+                String::from("phx.server"),
+            ],
+        )),
+    ));
+    targets.insert("spades".to_string(), git_target);
+
+    Config {
         build_dir: String::from("/tmp/shelly"),
+        cache: Some(true),
         default_target: String::from("elixir"),
         targets,
     }

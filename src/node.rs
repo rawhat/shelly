@@ -2,11 +2,14 @@ use std::fs;
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::target::{Dependencies, Dependency, LanguageTarget, Shell};
+use crate::target::{
+    generate_hash, Dependencies, Dependency, LanguageTarget, ProgramCommand, Shell,
+    SupportedLanguage,
+};
 
-const BUILD_TEMPLATE: &'static str = include_str!("./templates/node/package.json.tmpl");
-const SOURCE_TEMPLATE: &'static str = include_str!("./templates/node/index.js.tmpl");
-const SHELL_TEMPLATE: &'static str = include_str!("./templates/node/shell.sh.tmpl");
+const BUILD_TEMPLATE: &str = include_str!("./templates/node/package.json.tmpl");
+const SOURCE_TEMPLATE: &str = include_str!("./templates/node/index.js.tmpl");
+const SHELL_TEMPLATE: &str = include_str!("./templates/node/shell.sh.tmpl");
 
 #[derive(Deserialize, Serialize)]
 pub struct Context {
@@ -15,30 +18,35 @@ pub struct Context {
     pub packages: Vec<String>,
 }
 
-pub fn new(deps: Dependencies) -> LanguageTarget<Context> {
+pub fn new(deps: Dependencies, shell: bool) -> LanguageTarget<Context> {
     LanguageTarget::new(
         ("package.json", BUILD_TEMPLATE),
         Context {
             deps: deps.clone(),
             dep_string: generate_dep_string(deps.clone()),
-            packages: generate_packages(deps),
+            packages: generate_packages(deps.clone()),
         },
-        ("npm", vec!["i".to_string()]),
-        Some(Shell::new(
-            Box::new(|| {
-                let source = fs::read_to_string("./src/index.js")?;
-                Ok((
-                    "node",
-                    vec![
-                        "-i".to_string(),
-                        "--experimental-repl-await".to_string(),
-                        "-e".to_string(),
-                        source,
-                    ],
-                ))
-            }),
-            SHELL_TEMPLATE,
-        )),
+        generate_hash(deps, SupportedLanguage::node),
+        ProgramCommand::new(String::from("npm"), vec!["i".to_string()]),
+        if shell {
+            Some(Shell::new(
+                Box::new(|| {
+                    let source = fs::read_to_string("./src/index.js")?;
+                    Ok(ProgramCommand::new(
+                        String::from("node"),
+                        vec![
+                            "-i".to_string(),
+                            "--experimental-repl-await".to_string(),
+                            "-e".to_string(),
+                            source,
+                        ],
+                    ))
+                }),
+                SHELL_TEMPLATE,
+            ))
+        } else {
+            None
+        },
         "src",
         vec![("index.js", SOURCE_TEMPLATE)],
     )
