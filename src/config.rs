@@ -51,24 +51,25 @@ pub fn default() -> Config {
         Target::Internal(rust_target),
     );
 
-    let git_target = Target::Repo(RemoteTarget::new(
-        String::from("https://github.com/rawhat/spades.git"),
-        String::from("mix"),
-        vec![
-            String::from("do"),
-            String::from("deps.get,"),
-            String::from("deps.compile"),
-        ],
+    let serve_react_git = Target::Repo(RemoteTarget::new(
+        String::from("https://github.com/rawhat/serve-react.git"),
+        String::from("npm"),
+        vec![String::from("install")],
+        Some(ProgramCommand::new(String::from("./serve.sh"), vec![])),
+    ));
+
+    targets.insert("react".to_string(), serve_react_git);
+
+    let phoenix_react_git = Target::Repo(RemoteTarget::new(
+        String::from("https://github.com/rawhat/phoenix-react.git"),
+        String::from("docker-compose"),
+        vec![String::from("build")],
         Some(ProgramCommand::new(
-            String::from("iex"),
-            vec![
-                String::from("-S"),
-                String::from("mix"),
-                String::from("phx.server"),
-            ],
+            String::from("docker-compose"),
+            vec![String::from("up")],
         )),
     ));
-    targets.insert("spades".to_string(), git_target);
+    targets.insert("phoenix_react".to_string(), phoenix_react_git);
 
     Config {
         build_dir: String::from("/tmp/shelly"),
